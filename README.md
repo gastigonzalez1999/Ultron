@@ -83,7 +83,7 @@ This will start:
 - **Backend only**: `npm run dev:backend`
 - **Build**: `npm run build`
 
-## 📖 Usage Guide
+## Usage Guide
 
 ### 1. AI-Powered Flow Generation
 
