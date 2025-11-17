@@ -677,7 +677,7 @@ The test steps and results have been loaded. You can review them below.`,
   const renderTestSteps = (testSteps: TestStep[]) => {
     return (
       <div className="mt-4 space-y-6">
-        <h3 className="text-lg font-semibold text-white mb-3">Test Steps:</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Test Steps:</h3>
         {testSteps.map((step, index) => (
           <div key={index} className="mb-4">
             <div className="flex items-start space-x-3">
@@ -685,11 +685,11 @@ The test steps and results have been loaded. You can review them below.`,
                 {step.step}
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-medium text-white mb-2">{step.description}</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white mb-2">{step.description}</h4>
                 {step.apiCall && (
                   <div className="mb-3 w-full max-w-full">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-200">API Call:</span>
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200">API Call:</span>
                       <button
                         onClick={() => copyToClipboard(formatApiCall(step.apiCall), `api-${index}`)}
                         className="flex items-center space-x-1 text-xs text-primary-400 hover:text-primary-200"
@@ -707,33 +707,33 @@ The test steps and results have been loaded. You can review them below.`,
                         )}
                       </button>
                     </div>
-                    <div className="bg-gray-800 text-green-400 p-4 rounded-lg text-sm font-mono overflow-x-auto border border-gray-700 w-full max-w-full">
+                    <div className="bg-gray-100 dark:bg-gray-800 text-green-700 dark:text-green-400 p-4 rounded-lg text-sm font-mono overflow-x-auto border border-gray-300 dark:border-gray-700 w-full max-w-full">
                       <pre className="whitespace-pre-wrap">{formatApiCall(step.apiCall)}</pre>
                     </div>
                   </div>
                 )}
                 {step.dashboardAction && (
-                  <div className="bg-blue-900/30 border border-blue-800 rounded-md p-3 mt-2">
+                  <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md p-3 mt-2">
                     <div className="flex items-start space-x-2">
                       <div className="flex-shrink-0 w-5 h-5 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs">
                         📊
                       </div>
                       <div>
-                        <span className="text-sm font-medium text-blue-100">Dashboard Action:</span>
-                        <p className="text-sm text-blue-50 mt-1">{step.dashboardAction}</p>
+                        <span className="text-sm font-medium text-blue-900 dark:text-blue-100">Dashboard Action:</span>
+                        <p className="text-sm text-blue-800 dark:text-blue-50 mt-1">{step.dashboardAction}</p>
                       </div>
                     </div>
                   </div>
                 )}
                 {step.documentation && (
-                  <div className="bg-yellow-900/30 border border-yellow-800 rounded-md p-3 mt-2">
+                  <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-md p-3 mt-2">
                     <div className="flex items-start space-x-2">
                       <div className="flex-shrink-0 w-5 h-5 bg-yellow-500 text-white rounded-full flex items-center justify-center text-xs">
                         📚
                       </div>
                       <div>
-                        <span className="text-sm font-medium text-yellow-100">Documentation:</span>
-                        <p className="text-sm text-yellow-50 mt-1">{step.documentation}</p>
+                        <span className="text-sm font-medium text-yellow-900 dark:text-yellow-100">Documentation:</span>
+                        <p className="text-sm text-yellow-800 dark:text-yellow-50 mt-1">{step.documentation}</p>
                       </div>
                     </div>
                   </div>
@@ -758,26 +758,26 @@ The test steps and results have been loaded. You can review them below.`,
           className={`text-base ${
             isUser
               ? 'bg-primary-600 text-white rounded-2xl px-5 py-3 shadow-md max-w-xl mr-4'
-              : 'bg-gray-800/80 text-gray-100 rounded-2xl px-6 py-5 border border-gray-700 shadow-lg max-w-2xl'
+              : 'bg-gray-100 dark:bg-gray-800/80 text-gray-900 dark:text-gray-100 rounded-2xl px-6 py-5 border border-gray-300 dark:border-gray-700 shadow-lg max-w-2xl'
           }`}
         >
           {isUser ? (
-            <div className="whitespace-pre-wrap leading-relaxed text-gray-100">{message.content}</div>
+            <div className="whitespace-pre-wrap leading-relaxed text-white">{message.content}</div>
           ) : (
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight]}
               components={{
-                div: ({ children }) => <div className="prose prose-invert max-w-none text-gray-100">{children}</div>,
-                pre: ({ node, ...props }) => <pre {...props} className="bg-gray-800 rounded-lg p-4 overflow-x-auto" />,
-                code: ({ node, ...props }) => <code {...props} className="text-green-400 font-mono text-sm" />,
+                div: ({ children }) => <div className="prose dark:prose-invert max-w-none text-gray-900 dark:text-gray-100">{children}</div>,
+                pre: ({ node, ...props }) => <pre {...props} className="bg-gray-200 dark:bg-gray-800 rounded-lg p-4 overflow-x-auto" />,
+                code: ({ node, ...props }) => <code {...props} className="text-green-700 dark:text-green-400 font-mono text-sm" />,
               }}
             >
               {message.content}
             </ReactMarkdown>
           )}
           {message.testSteps && renderTestSteps(message.testSteps)}
-          <div className="text-xs opacity-70 mt-2 text-gray-200">
+          <div className="text-xs opacity-70 mt-2 text-gray-600 dark:text-gray-200">
             {message.timestamp.toLocaleTimeString()}
           </div>
         </div>
@@ -786,11 +786,11 @@ The test steps and results have been loaded. You can review them below.`,
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-900">
+    <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900">
       {/* Top Bar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center space-x-4">
-                <h1 className="text-2xl font-bold text-white">Ultron</h1>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ultron</h1>
           <button
             className="ml-2 px-3 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded shadow text-sm font-medium"
             onClick={() => setDrawerOpen(true)}
@@ -900,7 +900,7 @@ The test steps and results have been loaded. You can review them below.`,
           className="w-full max-w-2xl flex items-center space-x-2 mb-8"
         >
           <textarea
-            className="flex-1 resize-none rounded-lg border border-gray-700 bg-gray-800 text-gray-100 p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 min-h-[48px] max-h-40"
+            className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 min-h-[48px] max-h-40"
             placeholder="Type your message or describe a test flow..."
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -919,7 +919,7 @@ The test steps and results have been loaded. You can review them below.`,
 
       {/* AI Flow Suggestions Modal */}
       {showFlowSuggestions && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="w-full max-w-4xl max-h-[80vh] overflow-y-auto">
             <FlowSuggestions
               suggestions={flowSuggestions}
