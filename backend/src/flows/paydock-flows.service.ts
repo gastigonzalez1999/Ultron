@@ -1672,9 +1672,9 @@ export class PaydockFlowsService {
               {
                 targetStep: 2,
                 condition: {
-                  field: 'response.resource.data._id',
-                  operator: 'equals',
-                  value: '681b874bb9119f4f421c105d',
+                  field: 'resource.data',
+                  operator: 'not_equals',
+                  value: null,
                   stepNumber: 1
                 },
                 label: 'Gateway exists - use existing'
@@ -1716,7 +1716,7 @@ export class PaydockFlowsService {
                 'x-user-secret-key': '{{secretKey}}'
               },
               body: {
-                type: 'mpgs',
+                type: 'MasterCard',
                 name: 'MPGS Test Gateway',
                 mode: 'test',
                 credentials: {
@@ -1730,7 +1730,7 @@ export class PaydockFlowsService {
                 }
               }
             },
-            documentation: 'Creates a new MPGS gateway for payment processing. This step is executed when no existing gateway is found.',
+            documentation: 'Creates a new MPGS gateway for payment processing. This step is executed when no existing gateway is found.\n\n⚠️ Note: If you get a 403 "Actions with this service unavailable" error, MPGS gateways may need to be created through the Paydock dashboard instead of via API. In that case, create the gateway in the dashboard first and set MPGS_SERVICE_LOCAL or MPGS_SERVICE_STAGING to use the existing gateway.',
             retryConfig: {
               maxAttempts: 3,
               delayMs: 1000,
@@ -1754,13 +1754,11 @@ export class PaydockFlowsService {
                 'x-user-secret-key': '{{secretKey}}'
               },
               body: {
-                gateway_id: '{{step2._id || step3._id}}',
                 card_name: 'Wanda Mertz',
                 card_number: '5123456789012346',
                 expire_month: '12',
                 expire_year: '27',
-                card_ccv: '123',
-                vault_type: 'permanent'
+                card_ccv: '123'
               }
             },
             documentation: 'Creates a vault token using either the existing MPGS gateway (step 2) or the newly created gateway (step 3). This tokenizes the card for secure storage.',
@@ -1784,22 +1782,22 @@ export class PaydockFlowsService {
                               body: {
                   amount: '25.00',
                   currency: 'AUD',
-                  reference: '{{mpgsReference}}',
+                  reference: '{{reference}}',
                 description: 'Charge using MPGS gateway and vault token',
                 customer: {
                   first_name: 'Wanda',
                   last_name: 'Mertz',
                   email: 'wanda.mertz@example.com',
-                  phone: '+61412345678'
-                },
-                payment_source: {
-                  gateway_id: '{{step2._id || step3._id}}',
-                  vault_token: '{{step4.vault_token}}'
+                  phone: '+61412345678',
+                  payment_source: {
+                    gateway_id: '{{step2._id || step3._id || step1._id}}',
+                    vault_token: '{{step4.vault_token}}'
+                  }
                 },
                 metadata: {
                   flow_type: 'composite_mpgs',
                   gateway_source: '{{step2._id ? "existing" : "new"}}',
-                  gateway_id: '{{step2._id || step3._id}}',
+                  gateway_id: '{{step2._id || step3._id || step1._id}}',
                   vault_token_created: '{{step4.vault_token}}'
                 }
               }
@@ -2041,13 +2039,12 @@ export class PaydockFlowsService {
                 'x-user-secret-key': '{{secretKey}}'
               },
               body: {
-                type: 'mpgs',
+                type: 'MasterCard',
                 name: '3DS Test Gateway',
                 mode: 'test',
                 credentials: {
-                  merchant_id: '{{mpgsMerchantId}}',
-                  api_password: '{{mpgsApiPassword}}',
-                  api_username: '{{mpgsApiUsername}}'
+                  username: '{{mpgsMerchantId}}',
+                  password: '{{mpgsApiPassword}}'
                 },
                 settings: {
                   currency: 'AUD',

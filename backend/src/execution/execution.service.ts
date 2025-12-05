@@ -76,13 +76,6 @@ export class ExecutionService {
     try {
       this.logger.log(`Executing ${apiCall.method} ${apiCall.url}`);
 
-                  // Special logging for webhook calls to debug the payload
-      if (apiCall.url.includes('webhook') || apiCall.headers['x-paydock-event']) {
-        this.logger.log('🔍 WEBHOOK DEBUG - Full API call details:');
-        this.logger.log('URL:', apiCall.url);
-        this.logger.log('Headers:', JSON.stringify(apiCall.headers, null, 2));
-        this.logger.log('Body:', JSON.stringify(apiCall.body, null, 2));
-      }
 
       // Get environment configuration
       const apiName = this.extractApiName(apiCall.url);
@@ -114,6 +107,30 @@ export class ExecutionService {
         responseData = responseText;
       }
 
+      // Log full response for gateway creation errors
+      if (apiCall.url.includes('/v1/gateways') && apiCall.method === 'POST' && !response.ok) {
+        this.logger.error('❌ GATEWAY CREATION FAILED - Full response:');
+        this.logger.error('Status:', response.status);
+        this.logger.error('Status Text:', response.statusText);
+        this.logger.error('Response Body:', JSON.stringify(responseData, null, 2));
+      }
+
+      // Log full response for vault token creation errors
+      if (apiCall.url.includes('/v1/vault/payment_sources') && apiCall.method === 'POST' && !response.ok) {
+        this.logger.error('❌ VAULT TOKEN CREATION FAILED - Full response:');
+        this.logger.error('Status:', response.status);
+        this.logger.error('Status Text:', response.statusText);
+        this.logger.error('Response Body:', JSON.stringify(responseData, null, 2));
+      }
+
+      // Log full response for charge creation errors
+      if (apiCall.url.includes('/v1/charges') && apiCall.method === 'POST' && !response.ok) {
+        this.logger.error('❌ CHARGE CREATION FAILED - Full response:');
+        this.logger.error('Status:', response.status);
+        this.logger.error('Status Text:', response.statusText);
+        this.logger.error('Response Body:', JSON.stringify(responseData, null, 2));
+      }
+
       const duration = Date.now() - startTime;
 
       // Include response body in error for non-2xx status codes
@@ -124,11 +141,34 @@ export class ExecutionService {
             ? responseData
             : JSON.stringify(responseData);
 
+        // Provide helpful error messages for common status codes
+        let enhancedErrorMessage = `HTTP ${response.status}: ${errorMessage}`;
+
+        if (response.status === 403) {
+          if (errorMessage.includes('service unavailable') || errorMessage.includes('Actions with this service unavailable')) {
+            enhancedErrorMessage = `HTTP 403: ${errorMessage}\n\n` +
+              `This error typically means:\n` +
+              `• The MPGS gateway type is not enabled in your Paydock account\n` +
+              `• You don't have permission to create gateways\n` +
+              `• The service needs to be enabled by Paydock support\n\n` +
+              `Please contact Paydock support to enable MPGS gateway creation for your account.`;
+          } else {
+            enhancedErrorMessage = `HTTP 403: ${errorMessage}\n\n` +
+              `Access forbidden. Check your API key permissions and account settings.`;
+          }
+        } else if (response.status === 401) {
+          enhancedErrorMessage = `HTTP 401: ${errorMessage}\n\n` +
+            `Authentication failed. Please verify your API key (secretKey) is correct.`;
+        } else if (response.status === 400) {
+          enhancedErrorMessage = `HTTP 400: ${errorMessage}\n\n` +
+            `Bad request. Check that all required fields are provided and correctly formatted.`;
+        }
+
         return {
           success: false,
           statusCode: response.status,
           response: responseData,
-          error: `HTTP ${response.status}: ${errorMessage}`,
+          error: enhancedErrorMessage,
           duration,
           timestamp: new Date(),
         };
@@ -155,9 +195,6 @@ export class ExecutionService {
   }
 
   async executeTestSteps(testSteps: any[]): Promise<TestStepExecution[]> {
-    // DEBUG: Log the received flow definition for troubleshooting
-    this.logger.log('Received flow definition (testSteps):', JSON.stringify(testSteps, null, 2));
-
     // Get current environment variables for substitution
     const environments = this.environmentConfig.getAvailableEnvironments();
     const currentEnv = environments.find(env => env.name === this.environmentConfig.getCurrentEnvironment());
@@ -166,6 +203,9 @@ export class ExecutionService {
       baseUrl: currentEnv?.apis?.paydock?.baseUrl,
       secretKey: currentEnv?.apis?.paydock?.apiKey,
     };
+
+    // Track missing critical variables
+    const missingVariables: string[] = [];
 
     // Substitute variables in all steps before execution
     const substitute = (value: string): string => {
@@ -179,23 +219,25 @@ export class ExecutionService {
 
         // Special handling for unique references
         if (key === 'reference' || key === 'uniqueReference') {
-          const uniqueRef = this.generateUniqueReference();
-          this.logger.log(`Generated unique reference: ${uniqueRef}`);
-          return uniqueRef;
+          return this.generateUniqueReference();
         }
 
         // Handle prefixed unique references (e.g., {{chargeReference}}, {{subscriptionReference}})
         if (key.endsWith('Reference') && key !== 'reference' && key !== '3dsReference' && key !== 'standalone3dsReference') {
           const prefix = key.replace('Reference', '').toUpperCase();
-          const uniqueRef = this.generateUniqueReference(prefix);
-          this.logger.log(`Generated prefixed unique reference: ${uniqueRef}`);
-          return uniqueRef;
+          return this.generateUniqueReference(prefix);
         }
 
         const variableValue = variableMap[key];
         if (variableValue === undefined || variableValue === null || variableValue === '') {
+          // Track missing critical variables (MPGS credentials, API keys, etc.)
+          const criticalVariables = ['mpgsMerchantId', 'mpgsApiPassword', 'mpgsApiUsername', 'secretKey', 'baseUrl'];
+          if (criticalVariables.includes(key) && !missingVariables.includes(key)) {
+            missingVariables.push(key);
+          }
+
           // Log warning for missing variables
-          this.logger.warn(`Variable ${key} is not defined in environment, using placeholder`);
+          this.logger.warn(`⚠️ Variable ${key} is not defined in environment ${this.environmentConfig.getCurrentEnvironment()}, using placeholder`);
 
           // Provide fallback values for common variables
           const fallbacks: Record<string, string> = {
@@ -221,6 +263,21 @@ export class ExecutionService {
     // Function to substitute step response variables
     const substituteStepResponse = (value: string): string => {
       return value.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
+        // Special handling for unique references (must be generated, not from env vars)
+        if (key === 'reference' || key === 'uniqueReference') {
+          const uniqueRef = this.generateUniqueReference();
+          this.logger.log(`Generated unique reference: ${uniqueRef}`);
+          return uniqueRef;
+        }
+
+        // Handle prefixed unique references (e.g., {{chargeReference}}, {{subscriptionReference}})
+        if (key.endsWith('Reference') && key !== 'reference' && key !== '3dsReference' && key !== 'standalone3dsReference') {
+          const prefix = key.replace('Reference', '').toUpperCase();
+          const uniqueRef = this.generateUniqueReference(prefix);
+          this.logger.log(`Generated prefixed unique reference: ${uniqueRef}`);
+          return uniqueRef;
+        }
+
         // Handle conditional expressions with || (fallback)
         // e.g., {{step2._id || step3._id}}
         if (key.includes(' || ')) {
@@ -338,7 +395,22 @@ export class ExecutionService {
       if (obj && typeof obj === 'object') {
         const result: any = {};
         for (const [key, value] of Object.entries(obj)) {
-          result[key] = substituteStepResponseObject(value, stepNumber);
+          const substitutedValue = substituteStepResponseObject(value, stepNumber);
+          // Remove placeholder values from credentials objects (e.g., api_username if not provided)
+          if (key === 'credentials' && typeof substitutedValue === 'object' && substitutedValue !== null) {
+            const cleanedCredentials: any = {};
+            for (const [credKey, credValue] of Object.entries(substitutedValue)) {
+              // Only include credential if it's not a placeholder
+              if (typeof credValue === 'string' && !credValue.startsWith('placeholder_')) {
+                cleanedCredentials[credKey] = credValue;
+              } else if (typeof credValue !== 'string') {
+                cleanedCredentials[credKey] = credValue;
+              }
+            }
+            result[key] = cleanedCredentials;
+          } else {
+            result[key] = substitutedValue;
+          }
         }
         return result;
       }
@@ -354,17 +426,6 @@ export class ExecutionService {
         body: step.apiCall.body,
       } : undefined,
     }));
-
-    // Log substituted steps for debugging (only for steps 1 and 2)
-    substitutedSteps.forEach(step => {
-      if (step.apiCall && (step.step === 1 || step.step === 2)) {
-        this.logger.log(`Step ${step.step} substituted API call:`, {
-          method: step.apiCall.method,
-          url: step.apiCall.url,
-          body: step.apiCall.body
-        });
-      }
-    });
 
     // Use substitutedSteps for execution
     const results: TestStepExecution[] = [];
@@ -445,10 +506,15 @@ export class ExecutionService {
           let conditionMet = false;
           switch (edge.condition.operator) {
             case 'equals':
-              conditionMet = fieldValue == edge.condition.value;
+              conditionMet = String(fieldValue) === String(edge.condition.value);
               break;
             case 'not_equals':
-              conditionMet = fieldValue != edge.condition.value;
+              // Handle null/undefined checks
+              if (edge.condition.value === null || edge.condition.value === undefined) {
+                conditionMet = fieldValue !== null && fieldValue !== undefined && fieldValue !== '';
+              } else {
+                conditionMet = String(fieldValue) !== String(edge.condition.value);
+              }
               break;
             case 'contains':
               conditionMet = typeof fieldValue === 'string' && fieldValue.includes(edge.condition.value);
@@ -459,10 +525,6 @@ export class ExecutionService {
             case 'less_than':
               conditionMet = Number(fieldValue) < Number(edge.condition.value);
               break;
-          }
-
-          if (currentStep.step === 1) {
-            this.logger.log(`  Condition met: ${conditionMet}`);
           }
 
           if (conditionMet) {
@@ -499,11 +561,6 @@ export class ExecutionService {
             // Substitute step response variables in the current step before execution
       let stepToExecute = { ...step };
       if (stepToExecute.apiCall) {
-        // Log available step responses for debugging (only for steps 1 and 2)
-        if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-          this.logger.log(`Available step responses keys for step ${stepToExecute.step}:`, Object.keys(stepResponses));
-        }
-
         const substitutedBody = stepToExecute.apiCall.body ? substituteStepResponseObject(stepToExecute.apiCall.body, stepToExecute.step) : undefined;
 
         stepToExecute.apiCall = {
@@ -517,6 +574,83 @@ export class ExecutionService {
       let result: ExecutionResult;
 
       if (stepToExecute.apiCall) {
+        // Check for placeholders in API call body (especially for gateway creation and vault tokens)
+        const bodyString = JSON.stringify(stepToExecute.apiCall.body || {});
+        const placeholderMatches = bodyString.match(/placeholder_(\w+)/g);
+
+        // Also check for step reference placeholders that failed to resolve
+        const stepPlaceholderMatches = bodyString.match(/placeholder_(step\d+)/g);
+        if (stepPlaceholderMatches) {
+          const uniquePlaceholders = [...new Set(stepPlaceholderMatches.map(m => m.replace('placeholder_', '')))];
+          this.logger.error(`❌ Step ${stepToExecute.step} contains unresolved step references: ${uniquePlaceholders.join(', ')}`);
+          this.logger.error(`Available step responses:`, Object.keys(stepResponses));
+
+          result = {
+            success: false,
+            error: `Failed to resolve step references: ${uniquePlaceholders.join(', ')}\n\n` +
+                   `This usually means a previous step failed or didn't return the expected data.\n` +
+                   `Check the previous steps to ensure they completed successfully.`,
+            timestamp: new Date(),
+          };
+
+          results.push({
+            step: stepToExecute.step,
+            description: stepToExecute.description,
+            result,
+            apiCall: stepToExecute.apiCall,
+            dashboardAction: stepToExecute.dashboardAction,
+          });
+
+          stepResponses[stepToExecute.step] = null;
+          return;
+        }
+
+        if (placeholderMatches) {
+          const uniquePlaceholders = [...new Set(placeholderMatches.map(m => m.replace('placeholder_', '')))];
+          const envName = this.environmentConfig.getCurrentEnvironment();
+          const envPrefix = envName === 'local' ? 'LOCAL' : envName === 'staging-11' ? 'STAGING' : 'STAGING';
+
+          this.logger.error(`❌ Step ${stepToExecute.step} contains placeholder values: ${uniquePlaceholders.join(', ')}`);
+
+          // Create a helpful error message
+          const missingVars = uniquePlaceholders.map(v => {
+            // Map camelCase to UPPER_SNAKE_CASE for env var names
+            // Handle special cases like mpgsMerchantId -> MPGS_MERCHANT_ID
+            let envVarName = v;
+            // Handle MPGS prefix specially
+            if (v.startsWith('mpgs')) {
+              envVarName = 'MPGS_' + v.substring(4).replace(/([A-Z])/g, '_$1');
+            } else {
+              envVarName = v.replace(/([A-Z])/g, '_$1');
+            }
+            return `${envVarName.toUpperCase()}_${envPrefix}`;
+          });
+
+          result = {
+            success: false,
+            error: `Missing required environment variables: ${missingVars.join(', ')}\n\n` +
+                   `Please configure these in your backend/.env file:\n` +
+                   missingVars.map(v => `${v}=your_${v.toLowerCase().replace(/_/g, '_')}_value_here`).join('\n') +
+                   `\n\nCurrent environment: ${envName}\n` +
+                   `\nExample for local environment:\n` +
+                   missingVars.map(v => `${v}=your_actual_value`).join('\n'),
+            timestamp: new Date(),
+          };
+
+          // Add result and skip to end of function
+          results.push({
+            step: stepToExecute.step,
+            description: stepToExecute.description,
+            result,
+            apiCall: stepToExecute.apiCall,
+            dashboardAction: stepToExecute.dashboardAction,
+          });
+
+          // Skip API execution, but continue to variable extraction (which will be empty)
+          stepResponses[stepToExecute.step] = null;
+          return;
+        }
+
         // Handle retry logic for API calls
         const retryConfig = stepToExecute.retryConfig;
         let attempt = 1;
@@ -528,21 +662,6 @@ export class ExecutionService {
           try {
             this.logger.log(`Step ${stepToExecute.step} attempt ${attempt}/${maxAttempts}`);
             result = await this.executeApiCall(stepToExecute.apiCall);
-
-
-
-            // Log the response structure for debugging (only for steps 1 and 2)
-            if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-              this.logger.log(`Step ${stepToExecute.step} response structure:`, {
-                success: result.success,
-                hasResponse: !!result.response,
-                hasResource: !!(result.response && result.response.resource),
-                hasData: !!(result.response && result.response.resource && result.response.resource.data),
-                resourceType: result.response?.resource?.type,
-                dataKeys: result.response?.resource?.data ? Object.keys(result.response.resource.data) : [],
-                dataId: result.response?.resource?.data?._id,
-              });
-            }
 
             // If successful, break out of retry loop
             if (result.success) {
@@ -692,56 +811,25 @@ export class ExecutionService {
         if (data._id) {
           stepResponses[`${stepToExecute.step}_id`] = data._id;
           stepResponses[`${stepToExecute.step}__id`] = data._id; // Also store with double underscore for compatibility
-          if (stepToExecute.step === 1 || stepToExecute.step === 2 || stepToExecute.step === 3) {
-            this.logger.log(`Stored step${stepToExecute.step}_id = ${data._id}`);
-          }
         }
         if (data.external_id) {
           stepResponses[`${stepToExecute.step}_external_id`] = data.external_id;
-          if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-            this.logger.log(`Stored step${stepToExecute.step}_external_id = ${data.external_id}`);
-          }
         }
         // Extract transaction external_id if available
         if (data.transactions && Array.isArray(data.transactions) && data.transactions.length > 0 && data.transactions[0].external_id) {
           stepResponses[`${stepToExecute.step}_transactions_0_external_id`] = data.transactions[0].external_id;
-          if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-            this.logger.log(`Stored step${stepToExecute.step}_transactions_0_external_id = ${data.transactions[0].external_id}`);
-          }
         }
         if (data.customer_id) {
           stepResponses[`${stepToExecute.step}_customer_id`] = data.customer_id;
-          if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-            this.logger.log(`Stored step${stepToExecute.step}_customer_id = ${data.customer_id}`);
-          }
         }
         if (data.gateway_id) {
           stepResponses[`${stepToExecute.step}_gateway_id`] = data.gateway_id;
-          if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-            this.logger.log(`Stored step${stepToExecute.step}_gateway_id = ${data.gateway_id}`);
-          }
         }
         if (data.vault_token) {
           stepResponses[`${stepToExecute.step}_vault_token`] = data.vault_token;
-          if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-            this.logger.log(`Stored step${stepToExecute.step}_vault_token = ${data.vault_token}`);
-          }
         }
         if (data.one_time_token) {
           stepResponses[`${stepToExecute.step}_one_time_token`] = data.one_time_token;
-          if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-            this.logger.log(`Stored step${stepToExecute.step}_one_time_token = ${data.one_time_token}`);
-          }
-        }
-
-        // Log all stepResponses after storing (only for steps 1 and 2)
-        if (stepToExecute.step === 1 || stepToExecute.step === 2) {
-          this.logger.log(`All stepResponses after step ${stepToExecute.step}:`, stepResponses);
-        }
-
-        // Log extracted variables for debugging (only for steps 1 and 2)
-        if (Object.keys(extractedVariables).length > 0 && (stepToExecute.step === 1 || stepToExecute.step === 2)) {
-          this.logger.log(`Step ${stepToExecute.step} extracted variables:`, extractedVariables);
         }
       }
 
@@ -877,17 +965,6 @@ export class ExecutionService {
           case 'less_than':
             conditionMet = Number(fieldValue) < Number(edge.condition.value);
             break;
-        }
-
-        // Debug logging for branching (only for steps 1-3)
-        if (currentStep.step <= 3) {
-          this.logger.log(`🔀 BRANCHING DEBUG - Step ${currentStep.step}:`);
-          this.logger.log(`  Condition field: ${edge.condition.field}`);
-          this.logger.log(`  Expected value: ${edge.condition.value}`);
-          this.logger.log(`  Actual field value: ${JSON.stringify(fieldValue)}`);
-          this.logger.log(`  Operator: ${edge.condition.operator}`);
-          this.logger.log(`  Target step: ${edge.targetStep}`);
-          this.logger.log(`  Condition met: ${conditionMet}`);
         }
 
         if (conditionMet) {
